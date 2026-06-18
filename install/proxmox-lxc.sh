@@ -1,23 +1,51 @@
 #!/usr/bin/env bash
 set -e
 
-clear
-cat << "EOF"
+YW=$(echo "\033[33m")
+GN=$(echo "\033[1;92m")
+RD=$(echo "\033[1;91m")
+BL=$(echo "\033[36m")
+CL=$(echo "\033[m")
+
+REPO="https://github.com/cpeneguy/BookBridge.git"
+APP_DIR="/opt/bookbridge"
+
+header() {
+  clear
+  echo -e "${BL}"
+  cat << "EOF"
  ____              _     ____       _     _            
 | __ )  ___   ___ | | __| __ ) _ __(_) __| | __ _  ___ 
 |  _ \ / _ \ / _ \| |/ /|  _ \| '__| |/ _` |/ _` |/ _ \
 | |_) | (_) | (_) |   < | |_) | |  | | (_| | (_| |  __/
 |____/ \___/ \___/|_|\_\|____/|_|  |_|\__,_|\__, |\___|
                                              |___/      
-
-BookBridge LXC Installer
-Jellyseerr-style ebook and audiobook requests
 EOF
+  echo -e "${CL}"
+  echo -e "${GN}BookBridge LXC Installer${CL}"
+  echo -e "${YW}Jellyseerr-style ebook and audiobook requests${CL}"
+  echo ""
+}
 
-echo ""
+msg_info() {
+  echo -ne "${BL}[INFO]${CL} $1..."
+}
 
-REPO="https://github.com/cpeneguy/BookBridge.git"
-APP_DIR="/opt/bookbridge"
+msg_ok() {
+  echo -e "${GN} ✓ Done${CL}"
+}
+
+msg_error() {
+  echo -e "${RD} ✗ Failed${CL}"
+}
+
+fail() {
+  msg_error
+  echo -e "${RD}$1${CL}"
+  exit 1
+}
+
+header
 
 read -p "Container ID [118]: " CTID
 CTID=${CTID:-118}
@@ -40,13 +68,15 @@ CORES=${CORES:-1}
 read -p "Media host path [/mnt/media]: " MEDIA_HOST
 MEDIA_HOST=${MEDIA_HOST:-/mnt/media}
 
+echo ""
+
+msg_info "Checking Proxmox container ID"
 if pct status "$CTID" >/dev/null 2>&1; then
-  echo "Container ID $CTID already exists. Choose a different CTID."
-  exit 1
+  fail "Container ID $CTID already exists. Choose a different CTID."
 fi
+msg_ok
 
-echo "Finding compatible container template..."
-
+msg_info "Finding compatible container template"
 TEMPLATE=$(pveam list local | awk '
   /debian-12.*standard.*amd64/ {print $1; exit}
   /debian-13.*standard.*amd64/ {print $1; exit}
@@ -54,9 +84,12 @@ TEMPLATE=$(pveam list local | awk '
 ')
 
 if [ -z "$TEMPLATE" ]; then
-  echo "No compatible local template found. Updating template list..."
-  pveam update
+  msg_ok
+  msg_info "Updating Proxmox template list"
+  pveam update >/dev/null
+  msg_ok
 
+  msg_info "Finding downloadable template"
   TEMPLATE_NAME=$(pveam available --section system | awk '
     /debian-12.*standard.*amd64/ {print $2; exit}
     /debian-13.*standard.*amd64/ {print $2; exit}
@@ -64,18 +97,19 @@ if [ -z "$TEMPLATE" ]; then
   ')
 
   if [ -z "$TEMPLATE_NAME" ]; then
-    echo "Could not find Debian 12, Debian 13, or Ubuntu 24.04 template."
-    exit 1
+    fail "Could not find Debian 12, Debian 13, or Ubuntu 24.04 template."
   fi
+  msg_ok
 
-  echo "Downloading template: $TEMPLATE_NAME"
-  pveam download local "$TEMPLATE_NAME"
+  msg_info "Downloading template $TEMPLATE_NAME"
+  pveam download local "$TEMPLATE_NAME" >/dev/null
   TEMPLATE="local:vztmpl/$TEMPLATE_NAME"
+  msg_ok
+else
+  msg_ok
 fi
 
-echo "Using template: $TEMPLATE"
-echo "Creating BookBridge LXC..."
-
+msg_info "Creating BookBridge LXC"
 pct create "$CTID" "$TEMPLATE" \
   --hostname "$HOSTNAME" \
   --storage local-lvm \
@@ -86,39 +120,61 @@ pct create "$CTID" "$TEMPLATE" \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp,type=veth \
   --features nesting=1 \
   --unprivileged 1 \
-  --password changeme
+  --password changeme >/dev/null
+msg_ok
 
 if [ -d "$MEDIA_HOST" ]; then
-  echo "Mounting media path: $MEDIA_HOST"
-  pct set "$CTID" -mp0 "$MEDIA_HOST",mp=/mnt/media
+  msg_info "Mounting media path $MEDIA_HOST"
+  pct set "$CTID" -mp0 "$MEDIA_HOST",mp=/mnt/media >/dev/null
+  msg_ok
 else
-  echo "Media path not found, skipping mount: $MEDIA_HOST"
+  echo -e "${YW}[WARN]${CL} Media path not found, skipping mount: $MEDIA_HOST"
 fi
 
-echo "Starting container..."
-pct start "$CTID"
+msg_info "Starting container"
+pct start "$CTID" >/dev/null
 sleep 10
+msg_ok
 
-echo "Installing dependencies..."
+msg_info "Installing system dependencies"
 pct exec "$CTID" -- bash -c "
-apt update
-apt install -y curl git ca-certificates nano
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt install -y nodejs
-"
+apt update >/dev/null
+apt install -y curl git ca-certificates nano >/dev/null
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null
+apt install -y nodejs >/dev/null
+" || fail "Dependency installation failed."
+msg_ok
 
-echo "Installing BookBridge..."
+msg_info "Cloning BookBridge"
 pct exec "$CTID" -- bash -c "
 rm -rf $APP_DIR
-git clone $REPO $APP_DIR
-cd $APP_DIR
-npm install
-npx prisma generate || true
-npx prisma migrate deploy || true
-npm run build
-"
+git clone $REPO $APP_DIR >/dev/null
+" || fail "Git clone failed."
+msg_ok
 
-echo "Creating systemd service..."
+msg_info "Installing npm packages"
+pct exec "$CTID" -- bash -c "
+cd $APP_DIR
+npm install >/dev/null
+" || fail "npm install failed."
+msg_ok
+
+msg_info "Preparing Prisma"
+pct exec "$CTID" -- bash -c "
+cd $APP_DIR
+npx prisma generate >/dev/null 2>&1 || true
+npx prisma migrate deploy >/dev/null 2>&1 || true
+"
+msg_ok
+
+msg_info "Building BookBridge"
+pct exec "$CTID" -- bash -c "
+cd $APP_DIR
+npm run build >/dev/null
+" || fail "Build failed."
+msg_ok
+
+msg_info "Creating systemd service"
 pct exec "$CTID" -- bash -c "cat > /etc/systemd/system/bookbridge.service <<EOF
 [Unit]
 Description=BookBridge
@@ -136,14 +192,28 @@ Environment=PORT=$PORT
 [Install]
 WantedBy=multi-user.target
 EOF"
+msg_ok
 
-pct exec "$CTID" -- systemctl daemon-reload
-pct exec "$CTID" -- systemctl enable --now bookbridge
+msg_info "Starting BookBridge service"
+pct exec "$CTID" -- systemctl daemon-reload >/dev/null
+pct exec "$CTID" -- systemctl enable --now bookbridge >/dev/null
+msg_ok
 
 IP=$(pct exec "$CTID" -- hostname -I | awk '{print $1}')
 
 echo ""
-echo "BookBridge installed."
-echo "Container ID: $CTID"
-echo "Port: $PORT"
-echo "Open: http://$IP:$PORT"
+echo -e "${GN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CL}"
+echo -e "${GN}              INSTALL COMPLETE${CL}"
+echo -e "${GN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CL}"
+echo ""
+echo -e "Container ID : ${YW}$CTID${CL}"
+echo -e "Hostname     : ${YW}$HOSTNAME${CL}"
+echo -e "Port         : ${YW}$PORT${CL}"
+echo -e "Media Mount  : ${YW}/mnt/media${CL}"
+echo -e "URL          : ${GN}http://$IP:$PORT${CL}"
+echo ""
+echo -e "${BL}Useful commands:${CL}"
+echo "pct enter $CTID"
+echo "pct exec $CTID -- systemctl status bookbridge"
+echo "pct exec $CTID -- journalctl -u bookbridge -f"
+echo ""
