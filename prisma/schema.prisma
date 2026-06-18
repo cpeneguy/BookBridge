@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Book {
+  id             String      @id @default(cuid())
+  title          String
+  sortTitle      String?
+  author         String
+  year           Int?
+  isbn           String?
+  description    String?
+  coverUrl       String?
+  metadataSource String?
+  lastReleaseSearchAt DateTime?
+  lastReleaseSearchFormat String?
+  lastReleaseSearchStatus String?
+  lastReleaseSearchMessage String?
+  seriesName     String?
+  seriesPosition Float?
+  formatWanted   String
+  status         String      @default("wanted")
+  releases       Release[]
+  downloads      Download[]
+  imports        ImportJob[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+}
+
+model Release {
+  id          String   @id @default(cuid())
+  bookId      String
+  book        Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  title       String
+  indexer     String?
+  protocol    String
+  downloadUrl String
+  guid        String?
+  size        BigInt?
+  age         String?
+  seeders     Int?
+  category    String?
+  format      String?
+  score       Int?
+  warnings    String?
+  downloads   Download[]
+  createdAt   DateTime @default(now())
+}
+
+model Download {
+  id            String      @id @default(cuid())
+  bookId        String
+  book          Book        @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  releaseId     String?
+  release       Release?    @relation(fields: [releaseId], references: [id], onDelete: SetNull)
+  client        String
+  clientJobId   String?
+  title         String      @default("")
+  category      String
+  status        String
+  progress      Float?
+  downloadPath  String?
+  completedPath String?
+  errorMessage  String?
+  imports       ImportJob[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  completedAt   DateTime?
+}
+
+model ImportJob {
+  id         String    @id @default(cuid())
+  bookId     String
+  book       Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  downloadId String?
+  download   Download? @relation(fields: [downloadId], references: [id])
+  sourcePath String
+  targetPath String?
+  status     String
+  confidence Int?
+  log        String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model LibraryItem {
+  id        String   @id @default(cuid())
+  title     String
+  author    String?
+  year      Int?
+  format    String
+  path      String
+  source    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([path, format])
+}
