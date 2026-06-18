@@ -10,8 +10,6 @@ CL=$(echo "\033[m")
 REPO="https://github.com/cpeneguy/BookBridge.git"
 APP_DIR="/opt/bookbridge"
 LOG_FILE="/tmp/bookbridge-install.log"
-CTID=$(pvesh get /cluster/nextid)
-HOSTNAME="bookbridge"
 
 header() {
   clear
@@ -57,47 +55,47 @@ spinner() {
   fi
 }
 
-run_task() {
+run_spinner_task() {
   local msg="$1"
   shift
   bash -c "$*" >> "$LOG_FILE" 2>&1 &
   spinner $! "$msg"
 }
 
-header
+run_direct_task() {
+  local msg="$1"
+  shift
+  echo -e "${BL}➜${CL} $msg"
+  bash -c "$*" 2>&1 | tee -a "$LOG_FILE"
+  echo -e "${GN}✓${CL} $msg"
+}
 
+header
 echo -n "" > "$LOG_FILE"
 
 CTID=$(pvesh get /cluster/nextid)
 HOSTNAME="bookbridge"
+PORT="8181"
+DISK_SIZE="8"
+MEMORY="1024"
+CORES="1"
+MEDIA_HOST="/mnt/media"
 
 echo -e "Container ID : ${YW}$CTID${CL} ${GN}(auto-selected)${CL}"
 echo -e "Hostname     : ${YW}$HOSTNAME${CL}"
-echo ""
-
-read -p "BookBridge Port [8181]: " PORT
-PORT=${PORT:-8181}
-
-read -p "Disk size in GB [8]: " DISK_SIZE
-DISK_SIZE=${DISK_SIZE:-8}
-
-read -p "Memory in MB [1024]: " MEMORY
-MEMORY=${MEMORY:-1024}
-
-read -p "CPU cores [1]: " CORES
-CORES=${CORES:-1}
-
-read -p "Media host path [/mnt/media]: " MEDIA_HOST
-MEDIA_HOST=${MEDIA_HOST:-/mnt/media}
-
+echo -e "Port         : ${YW}$PORT${CL}"
+echo -e "Disk Size    : ${YW}${DISK_SIZE}GB${CL}"
+echo -e "Memory       : ${YW}${MEMORY}MB${CL}"
+echo -e "CPU Cores    : ${YW}$CORES${CL}"
+echo -e "Media Mount  : ${YW}$MEDIA_HOST${CL}"
 echo ""
 
 if pct status "$CTID" >/dev/null 2>&1; then
-  echo -e "${RD}Container ID $CTID already exists. Choose a different CTID.${CL}"
+  echo -e "${RD}Container ID $CTID already exists. Try again.${CL}"
   exit 1
 fi
 
-run_task "Checking Proxmox template list" "pveam update"
+run_spinner_task "Checking Proxmox template list" "pveam update"
 
 TEMPLATE=$(pveam list local | awk '
   /debian-12.*standard.*amd64/ {print $1; exit}
@@ -117,11 +115,11 @@ if [ -z "$TEMPLATE" ]; then
     exit 1
   fi
 
-  run_task "Downloading template $TEMPLATE_NAME" "pveam download local '$TEMPLATE_NAME'"
+  run_spinner_task "Downloading template $TEMPLATE_NAME" "pveam download local '$TEMPLATE_NAME'"
   TEMPLATE="local:vztmpl/$TEMPLATE_NAME"
 fi
 
-run_task "Creating BookBridge LXC" "
+run_spinner_task "Creating BookBridge LXC" "
 pct create '$CTID' '$TEMPLATE' \
   --hostname '$HOSTNAME' \
   --storage local-lvm \
@@ -135,46 +133,48 @@ pct create '$CTID' '$TEMPLATE' \
   --password changeme
 "
 
-run_task "Enabling container startup on boot" "pct set '$CTID' -onboot 1"
+run_spinner_task "Enabling container startup on boot" "pct set '$CTID' -onboot 1"
 
 if [ -d "$MEDIA_HOST" ]; then
-  run_task "Mounting media path $MEDIA_HOST" "pct set '$CTID' -mp0 '$MEDIA_HOST',mp=/mnt/media"
+  run_spinner_task "Mounting media path $MEDIA_HOST" "pct set '$CTID' -mp0 '$MEDIA_HOST',mp=/mnt/media"
 else
   echo -e "${YW}⚠ Media path not found, skipping mount: $MEDIA_HOST${CL}"
 fi
 
-run_task "Starting container" "pct start '$CTID'"
+run_spinner_task "Starting container" "pct start '$CTID'"
 
-sleep 10
+sleep 8
 
-run_task "Installing system dependencies" "
+run_direct_task "Installing system dependencies" "
 pct exec '$CTID' -- bash -c '
-apt update
-apt install -y curl git ca-certificates nano
-apt install -y locales
-sed -i 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
-locale-gen
-update-locale LANG=en_US.UTF-8
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y curl git ca-certificates nano locales
+sed -i \"s/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/\" /etc/locale.gen || true
+locale-gen || true
+update-locale LANG=en_US.UTF-8 || true
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt install -y nodejs
+apt-get install -y nodejs
+node -v
+npm -v
 '
 "
 
-run_task "Cloning BookBridge" "
+run_direct_task "Cloning BookBridge" "
 pct exec '$CTID' -- bash -c '
 rm -rf $APP_DIR
 git clone $REPO $APP_DIR
 '
 "
 
-run_task "Installing npm packages" "
+run_direct_task "Installing npm packages" "
 pct exec '$CTID' -- bash -c '
 cd $APP_DIR
 npm install
 '
 "
 
-run_task "Preparing Prisma" "
+run_direct_task "Preparing Prisma" "
 pct exec '$CTID' -- bash -c '
 cd $APP_DIR
 npx prisma generate || true
@@ -182,14 +182,14 @@ npx prisma migrate deploy || true
 '
 "
 
-run_task "Building BookBridge" "
+run_direct_task "Building BookBridge" "
 pct exec '$CTID' -- bash -c '
 cd $APP_DIR
 npm run build
 '
 "
 
-run_task "Creating systemd service" "
+run_spinner_task "Creating systemd service" "
 pct exec '$CTID' -- bash -c 'cat > /etc/systemd/system/bookbridge.service <<EOF
 [Unit]
 Description=BookBridge
@@ -209,7 +209,7 @@ WantedBy=multi-user.target
 EOF'
 "
 
-run_task "Starting BookBridge service" "
+run_spinner_task "Starting BookBridge service" "
 pct exec '$CTID' -- systemctl daemon-reload
 pct exec '$CTID' -- systemctl enable --now bookbridge
 "
