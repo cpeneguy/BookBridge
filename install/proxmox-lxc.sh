@@ -142,14 +142,13 @@ else
 fi
 
 run_spinner_task "Starting container" "pct start '$CTID'"
-
 sleep 8
 
 run_direct_task "Installing system dependencies" "
 pct exec '$CTID' -- bash -c '
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y curl git ca-certificates nano locales
+apt-get install -y curl git ca-certificates nano locales openssl
 sed -i \"s/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/\" /etc/locale.gen || true
 locale-gen || true
 update-locale LANG=en_US.UTF-8 || true
@@ -174,18 +173,22 @@ npm install
 '
 "
 
-run_direct_task "Preparing Prisma" "
+run_direct_task "Creating environment file" "
 pct exec '$CTID' -- bash -c '
 cd $APP_DIR
-if [ ! -f .env ]; then
 cat > .env <<EOF
-DATABASE_URL="file:./prisma/dev.db"
-PORT=8181
+DATABASE_URL=\"file:./prisma/dev.db\"
+PORT=$PORT
 NODE_ENV=production
 EOF
-fi
-npx prisma generate || true
-npx prisma migrate deploy || true
+'
+"
+
+run_direct_task "Preparing Prisma database" "
+pct exec '$CTID' -- bash -c '
+cd $APP_DIR
+npx prisma generate
+npx prisma db push
 '
 "
 
@@ -210,6 +213,7 @@ Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
 Environment=PORT=$PORT
+Environment=DATABASE_URL=file:./prisma/dev.db
 
 [Install]
 WantedBy=multi-user.target
