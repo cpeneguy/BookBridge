@@ -10,6 +10,8 @@ CL=$(echo "\033[m")
 REPO="https://github.com/cpeneguy/BookBridge.git"
 APP_DIR="/opt/bookbridge"
 LOG_FILE="/tmp/bookbridge-install.log"
+CTID=$(pvesh get /cluster/nextid)
+HOSTNAME="bookbridge"
 
 header() {
   clear
@@ -66,11 +68,12 @@ header
 
 echo -n "" > "$LOG_FILE"
 
-read -p "Container ID [118]: " CTID
-CTID=${CTID:-118}
+CTID=$(pvesh get /cluster/nextid)
+HOSTNAME="bookbridge"
 
-read -p "Hostname [bookbridge]: " HOSTNAME
-HOSTNAME=${HOSTNAME:-bookbridge}
+echo -e "Container ID : ${YW}$CTID${CL} ${GN}(auto-selected)${CL}"
+echo -e "Hostname     : ${YW}$HOSTNAME${CL}"
+echo ""
 
 read -p "BookBridge Port [8181]: " PORT
 PORT=${PORT:-8181}
