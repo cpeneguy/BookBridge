@@ -9,17 +9,18 @@ CL=$(echo "\033[m")
 
 REPO="https://github.com/cpeneguy/BookBridge.git"
 APP_DIR="/opt/bookbridge"
+LOG_FILE="/tmp/bookbridge-install.log"
 
 header() {
   clear
   echo -e "${BL}"
   cat << "EOF"
- ____              _     ____       _     _            
-| __ )  ___   ___ | | __| __ ) _ __(_) __| | __ _  ___ 
+ ____              _     ____       _     _
+| __ )  ___   ___ | | __| __ ) _ __(_) __| | __ _  ___
 |  _ \ / _ \ / _ \| |/ /|  _ \| '__| |/ _` |/ _` |/ _ \
 | |_) | (_) | (_) |   < | |_) | |  | | (_| | (_| |  __/
 |____/ \___/ \___/|_|\_\|____/|_|  |_|\__,_|\__, |\___|
-                                             |___/      
+                                             |___/
 EOF
   echo -e "${CL}"
   echo -e "${GN}BookBridge LXC Installer${CL}"
@@ -27,25 +28,43 @@ EOF
   echo ""
 }
 
-msg_info() {
-  echo -ne "${BL}[INFO]${CL} $1..."
+spinner() {
+  local pid=$1
+  local msg="$2"
+  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+
+  while ps -p "$pid" >/dev/null 2>&1; do
+    for i in $(seq 0 9); do
+      printf "\r${GN}%s${CL} %s" "${spin:$i:1}" "$msg"
+      sleep 0.08
+      ps -p "$pid" >/dev/null 2>&1 || break
+    done
+  done
+
+  wait "$pid"
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ]; then
+    printf "\r${GN}✓${CL} %s\n" "$msg"
+  else
+    printf "\r${RD}✗${CL} %s\n" "$msg"
+    echo ""
+    echo -e "${RD}Command failed. Last log lines:${CL}"
+    tail -n 40 "$LOG_FILE"
+    exit "$exit_code"
+  fi
 }
 
-msg_ok() {
-  echo -e "${GN} ✓ Done${CL}"
-}
-
-msg_error() {
-  echo -e "${RD} ✗ Failed${CL}"
-}
-
-fail() {
-  msg_error
-  echo -e "${RD}$1${CL}"
-  exit 1
+run_task() {
+  local msg="$1"
+  shift
+  bash -c "$*" >> "$LOG_FILE" 2>&1 &
+  spinner $! "$msg"
 }
 
 header
+
+echo -n "" > "$LOG_FILE"
 
 read -p "Container ID [118]: " CTID
 CTID=${CTID:-118}
@@ -70,13 +89,13 @@ MEDIA_HOST=${MEDIA_HOST:-/mnt/media}
 
 echo ""
 
-msg_info "Checking Proxmox container ID"
 if pct status "$CTID" >/dev/null 2>&1; then
-  fail "Container ID $CTID already exists. Choose a different CTID."
+  echo -e "${RD}Container ID $CTID already exists. Choose a different CTID.${CL}"
+  exit 1
 fi
-msg_ok
 
-msg_info "Finding compatible container template"
+run_task "Checking Proxmox template list" "pveam update"
+
 TEMPLATE=$(pveam list local | awk '
   /debian-12.*standard.*amd64/ {print $1; exit}
   /debian-13.*standard.*amd64/ {print $1; exit}
@@ -84,12 +103,6 @@ TEMPLATE=$(pveam list local | awk '
 ')
 
 if [ -z "$TEMPLATE" ]; then
-  msg_ok
-  msg_info "Updating Proxmox template list"
-  pveam update >/dev/null
-  msg_ok
-
-  msg_info "Finding downloadable template"
   TEMPLATE_NAME=$(pveam available --section system | awk '
     /debian-12.*standard.*amd64/ {print $2; exit}
     /debian-13.*standard.*amd64/ {print $2; exit}
@@ -97,85 +110,84 @@ if [ -z "$TEMPLATE" ]; then
   ')
 
   if [ -z "$TEMPLATE_NAME" ]; then
-    fail "Could not find Debian 12, Debian 13, or Ubuntu 24.04 template."
+    echo -e "${RD}Could not find Debian 12, Debian 13, or Ubuntu 24.04 template.${CL}"
+    exit 1
   fi
-  msg_ok
 
-  msg_info "Downloading template $TEMPLATE_NAME"
-  pveam download local "$TEMPLATE_NAME" >/dev/null
+  run_task "Downloading template $TEMPLATE_NAME" "pveam download local '$TEMPLATE_NAME'"
   TEMPLATE="local:vztmpl/$TEMPLATE_NAME"
-  msg_ok
-else
-  msg_ok
 fi
 
-msg_info "Creating BookBridge LXC"
-pct create "$CTID" "$TEMPLATE" \
-  --hostname "$HOSTNAME" \
+run_task "Creating BookBridge LXC" "
+pct create '$CTID' '$TEMPLATE' \
+  --hostname '$HOSTNAME' \
   --storage local-lvm \
-  --rootfs local-lvm:"$DISK_SIZE" \
-  --memory "$MEMORY" \
+  --rootfs local-lvm:'$DISK_SIZE' \
+  --memory '$MEMORY' \
   --swap 512 \
-  --cores "$CORES" \
+  --cores '$CORES' \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp,type=veth \
   --features nesting=1 \
   --unprivileged 1 \
-  --password changeme >/dev/null
-msg_ok
+  --password changeme
+"
+
+run_task "Enabling container startup on boot" "pct set '$CTID' -onboot 1"
 
 if [ -d "$MEDIA_HOST" ]; then
-  msg_info "Mounting media path $MEDIA_HOST"
-  pct set "$CTID" -mp0 "$MEDIA_HOST",mp=/mnt/media >/dev/null
-  msg_ok
+  run_task "Mounting media path $MEDIA_HOST" "pct set '$CTID' -mp0 '$MEDIA_HOST',mp=/mnt/media"
 else
-  echo -e "${YW}[WARN]${CL} Media path not found, skipping mount: $MEDIA_HOST"
+  echo -e "${YW}⚠ Media path not found, skipping mount: $MEDIA_HOST${CL}"
 fi
 
-msg_info "Starting container"
-pct start "$CTID" >/dev/null
+run_task "Starting container" "pct start '$CTID'"
+
 sleep 10
-msg_ok
 
-msg_info "Installing system dependencies"
-pct exec "$CTID" -- bash -c "
-apt update >/dev/null
-apt install -y curl git ca-certificates nano >/dev/null
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null
-apt install -y nodejs >/dev/null
-" || fail "Dependency installation failed."
-msg_ok
-
-msg_info "Cloning BookBridge"
-pct exec "$CTID" -- bash -c "
-rm -rf $APP_DIR
-git clone $REPO $APP_DIR >/dev/null
-" || fail "Git clone failed."
-msg_ok
-
-msg_info "Installing npm packages"
-pct exec "$CTID" -- bash -c "
-cd $APP_DIR
-npm install >/dev/null
-" || fail "npm install failed."
-msg_ok
-
-msg_info "Preparing Prisma"
-pct exec "$CTID" -- bash -c "
-cd $APP_DIR
-npx prisma generate >/dev/null 2>&1 || true
-npx prisma migrate deploy >/dev/null 2>&1 || true
+run_task "Installing system dependencies" "
+pct exec '$CTID' -- bash -c '
+apt update
+apt install -y curl git ca-certificates nano
+apt install -y locales
+sed -i 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+locale-gen
+update-locale LANG=en_US.UTF-8
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs
+'
 "
-msg_ok
 
-msg_info "Building BookBridge"
-pct exec "$CTID" -- bash -c "
+run_task "Cloning BookBridge" "
+pct exec '$CTID' -- bash -c '
+rm -rf $APP_DIR
+git clone $REPO $APP_DIR
+'
+"
+
+run_task "Installing npm packages" "
+pct exec '$CTID' -- bash -c '
 cd $APP_DIR
-npm run build >/dev/null
-" || fail "Build failed."
-msg_ok
+npm install
+'
+"
 
-msg_info "Creating systemd service"
-pct exec "$CTID" -- bash -c "cat > /etc/systemd/system/bookbridge.service <<EOF
+run_task "Preparing Prisma" "
+pct exec '$CTID' -- bash -c '
+cd $APP_DIR
+npx prisma generate || true
+npx prisma migrate deploy || true
+'
+"
+
+run_task "Building BookBridge" "
+pct exec '$CTID' -- bash -c '
+cd $APP_DIR
+npm run build
+'
+"
+
+run_task "Creating systemd service" "
+pct exec '$CTID' -- bash -c 'cat > /etc/systemd/system/bookbridge.service <<EOF
 [Unit]
 Description=BookBridge
 After=network.target
@@ -191,13 +203,13 @@ Environment=PORT=$PORT
 
 [Install]
 WantedBy=multi-user.target
-EOF"
-msg_ok
+EOF'
+"
 
-msg_info "Starting BookBridge service"
-pct exec "$CTID" -- systemctl daemon-reload >/dev/null
-pct exec "$CTID" -- systemctl enable --now bookbridge >/dev/null
-msg_ok
+run_task "Starting BookBridge service" "
+pct exec '$CTID' -- systemctl daemon-reload
+pct exec '$CTID' -- systemctl enable --now bookbridge
+"
 
 IP=$(pct exec "$CTID" -- hostname -I | awk '{print $1}')
 
