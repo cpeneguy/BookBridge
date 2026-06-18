@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -e
 
+clear
+cat << "EOF"
+ ____              _     ____       _     _            
+| __ )  ___   ___ | | __| __ ) _ __(_) __| | __ _  ___ 
+|  _ \ / _ \ / _ \| |/ /|  _ \| '__| |/ _` |/ _` |/ _ \
+| |_) | (_) | (_) |   < | |_) | |  | | (_| | (_| |  __/
+|____/ \___/ \___/|_|\_\|____/|_|  |_|\__,_|\__, |\___|
+                                             |___/      
+
+BookBridge LXC Installer
+Jellyseerr-style ebook and audiobook requests
+EOF
+
+echo ""
+
 REPO="https://github.com/cpeneguy/BookBridge.git"
 APP_DIR="/opt/bookbridge"
 
