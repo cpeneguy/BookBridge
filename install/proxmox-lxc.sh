@@ -1,66 +1,72 @@
 #!/usr/bin/env bash
 set -e
 
-CTID=118
-HOSTNAME="bookbridge"
 REPO="https://github.com/cpeneguy/BookBridge.git"
-TEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
-STORAGE="local-lvm"
-DISK_SIZE="8"
-MEMORY="1024"
-SWAP="512"
-CORES="1"
-BRIDGE="vmbr0"
-MEDIA_HOST="/mnt/media"
-MEDIA_CT="/mnt/media"
-APP_DIR="/opt/bookbridge"
-PORT="3000"
 
-echo "Creating BookBridge LXC..."
+read -p "Container ID [118]: " CTID
+CTID=${CTID:-118}
+
+read -p "Hostname [bookbridge]: " HOSTNAME
+HOSTNAME=${HOSTNAME:-bookbridge}
+
+read -p "Disk size in GB [8]: " DISK_SIZE
+DISK_SIZE=${DISK_SIZE:-8}
+
+read -p "Memory in MB [1024]: " MEMORY
+MEMORY=${MEMORY:-1024}
+
+read -p "CPU cores [1]: " CORES
+CORES=${CORES:-1}
+
+read -p "Mount media path? Host path [/mnt/media]: " MEDIA_HOST
+MEDIA_HOST=${MEDIA_HOST:-/mnt/media}
+
+TEMPLATE=$(pveam list local | awk '/debian-12.*standard.*amd64/ {print $1}' | tail -n 1)
+
+if [ -z "$TEMPLATE" ]; then
+  echo "No Debian 12 template found."
+  echo "Download one in Proxmox: local → CT Templates → Templates → debian-12-standard"
+  exit 1
+fi
+
+echo "Using template: $TEMPLATE"
 
 pct create "$CTID" "$TEMPLATE" \
   --hostname "$HOSTNAME" \
-  --storage "$STORAGE" \
-  --rootfs "$STORAGE:$DISK_SIZE" \
+  --storage local-lvm \
+  --rootfs local-lvm:"$DISK_SIZE" \
   --memory "$MEMORY" \
-  --swap "$SWAP" \
+  --swap 512 \
   --cores "$CORES" \
-  --net0 name=eth0,bridge="$BRIDGE",ip=dhcp,type=veth \
+  --net0 name=eth0,bridge=vmbr0,ip=dhcp,type=veth \
   --features nesting=1 \
   --unprivileged 1 \
   --password changeme
 
-echo "Mounting media folder..."
-pct set "$CTID" -mp0 "$MEDIA_HOST",mp="$MEDIA_CT"
+if [ -d "$MEDIA_HOST" ]; then
+  pct set "$CTID" -mp0 "$MEDIA_HOST",mp=/mnt/media
+fi
 
-echo "Starting container..."
 pct start "$CTID"
-
-echo "Waiting for container network..."
 sleep 10
 
-echo "Installing dependencies..."
 pct exec "$CTID" -- bash -c "
 apt update
-apt install -y curl git nano ca-certificates
+apt install -y curl git ca-certificates nano
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt install -y nodejs
-node -v
-npm -v
 "
 
-echo "Cloning BookBridge..."
 pct exec "$CTID" -- bash -c "
-rm -rf $APP_DIR
-git clone $REPO $APP_DIR
-cd $APP_DIR
+rm -rf /opt/bookbridge
+git clone $REPO /opt/bookbridge
+cd /opt/bookbridge
 npm install
 npx prisma generate || true
 npx prisma migrate deploy || true
 npm run build
 "
 
-echo "Creating systemd service..."
 pct exec "$CTID" -- bash -c "cat > /etc/systemd/system/bookbridge.service <<'EOF'
 [Unit]
 Description=BookBridge
@@ -73,7 +79,7 @@ ExecStart=/usr/bin/npm start
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
-Environment=PORT=3000
+Environment=PORT=8181
 
 [Install]
 WantedBy=multi-user.target
@@ -82,9 +88,8 @@ EOF"
 pct exec "$CTID" -- systemctl daemon-reload
 pct exec "$CTID" -- systemctl enable --now bookbridge
 
-echo "BookBridge install complete."
-echo "Container ID: $CTID"
-echo "Find IP with:"
-echo "pct exec $CTID -- hostname -I"
-echo "Then open:"
-echo "http://<container-ip>:$PORT"
+IP=$(pct exec "$CTID" -- hostname -I | awk '{print $1}')
+
+echo ""
+echo "BookBridge installed."
+echo "Open: http://$IP:8181"
