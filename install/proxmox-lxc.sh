@@ -177,6 +177,13 @@ npm install
 run_direct_task "Preparing Prisma" "
 pct exec '$CTID' -- bash -c '
 cd $APP_DIR
+if [ ! -f .env ]; then
+cat > .env <<EOF
+DATABASE_URL="file:./prisma/dev.db"
+PORT=8181
+NODE_ENV=production
+EOF
+fi
 npx prisma generate || true
 npx prisma migrate deploy || true
 '
