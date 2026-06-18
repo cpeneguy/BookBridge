@@ -2,12 +2,16 @@
 set -e
 
 REPO="https://github.com/cpeneguy/BookBridge.git"
+APP_DIR="/opt/bookbridge"
 
 read -p "Container ID [118]: " CTID
 CTID=${CTID:-118}
 
 read -p "Hostname [bookbridge]: " HOSTNAME
 HOSTNAME=${HOSTNAME:-bookbridge}
+
+read -p "BookBridge Port [8181]: " PORT
+PORT=${PORT:-8181}
 
 read -p "Disk size in GB [8]: " DISK_SIZE
 DISK_SIZE=${DISK_SIZE:-8}
@@ -18,18 +22,44 @@ MEMORY=${MEMORY:-1024}
 read -p "CPU cores [1]: " CORES
 CORES=${CORES:-1}
 
-read -p "Mount media path? Host path [/mnt/media]: " MEDIA_HOST
+read -p "Media host path [/mnt/media]: " MEDIA_HOST
 MEDIA_HOST=${MEDIA_HOST:-/mnt/media}
 
-TEMPLATE=$(pveam list local | awk '/debian-12.*standard.*amd64/ {print $1}' | tail -n 1)
-
-if [ -z "$TEMPLATE" ]; then
-  echo "No Debian 12 template found."
-  echo "Download one in Proxmox: local → CT Templates → Templates → debian-12-standard"
+if pct status "$CTID" >/dev/null 2>&1; then
+  echo "Container ID $CTID already exists. Choose a different CTID."
   exit 1
 fi
 
+echo "Finding compatible container template..."
+
+TEMPLATE=$(pveam list local | awk '
+  /debian-12.*standard.*amd64/ {print $1; exit}
+  /debian-13.*standard.*amd64/ {print $1; exit}
+  /ubuntu-24.04.*standard.*amd64/ {print $1; exit}
+')
+
+if [ -z "$TEMPLATE" ]; then
+  echo "No compatible local template found. Updating template list..."
+  pveam update
+
+  TEMPLATE_NAME=$(pveam available --section system | awk '
+    /debian-12.*standard.*amd64/ {print $2; exit}
+    /debian-13.*standard.*amd64/ {print $2; exit}
+    /ubuntu-24.04.*standard.*amd64/ {print $2; exit}
+  ')
+
+  if [ -z "$TEMPLATE_NAME" ]; then
+    echo "Could not find Debian 12, Debian 13, or Ubuntu 24.04 template."
+    exit 1
+  fi
+
+  echo "Downloading template: $TEMPLATE_NAME"
+  pveam download local "$TEMPLATE_NAME"
+  TEMPLATE="local:vztmpl/$TEMPLATE_NAME"
+fi
+
 echo "Using template: $TEMPLATE"
+echo "Creating BookBridge LXC..."
 
 pct create "$CTID" "$TEMPLATE" \
   --hostname "$HOSTNAME" \
@@ -44,12 +74,17 @@ pct create "$CTID" "$TEMPLATE" \
   --password changeme
 
 if [ -d "$MEDIA_HOST" ]; then
+  echo "Mounting media path: $MEDIA_HOST"
   pct set "$CTID" -mp0 "$MEDIA_HOST",mp=/mnt/media
+else
+  echo "Media path not found, skipping mount: $MEDIA_HOST"
 fi
 
+echo "Starting container..."
 pct start "$CTID"
 sleep 10
 
+echo "Installing dependencies..."
 pct exec "$CTID" -- bash -c "
 apt update
 apt install -y curl git ca-certificates nano
@@ -57,29 +92,31 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt install -y nodejs
 "
 
+echo "Installing BookBridge..."
 pct exec "$CTID" -- bash -c "
-rm -rf /opt/bookbridge
-git clone $REPO /opt/bookbridge
-cd /opt/bookbridge
+rm -rf $APP_DIR
+git clone $REPO $APP_DIR
+cd $APP_DIR
 npm install
 npx prisma generate || true
 npx prisma migrate deploy || true
 npm run build
 "
 
-pct exec "$CTID" -- bash -c "cat > /etc/systemd/system/bookbridge.service <<'EOF'
+echo "Creating systemd service..."
+pct exec "$CTID" -- bash -c "cat > /etc/systemd/system/bookbridge.service <<EOF
 [Unit]
 Description=BookBridge
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/bookbridge
-ExecStart=/usr/bin/npm start
+WorkingDirectory=$APP_DIR
+ExecStart=/usr/bin/npm start -- -p $PORT
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
-Environment=PORT=8181
+Environment=PORT=$PORT
 
 [Install]
 WantedBy=multi-user.target
@@ -92,4 +129,6 @@ IP=$(pct exec "$CTID" -- hostname -I | awk '{print $1}')
 
 echo ""
 echo "BookBridge installed."
-echo "Open: http://$IP:8181"
+echo "Container ID: $CTID"
+echo "Port: $PORT"
+echo "Open: http://$IP:$PORT"
