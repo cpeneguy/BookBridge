@@ -8,7 +8,7 @@ const visibleDownloadWhere = {
 
 export async function GET(request: NextRequest) {
   const settings = await getSettings();
-  const authResponse = authorizeHomepageRequest(request, settings.homepageApiKey);
+  const authResponse = await authorizeHomepageRequest(request, settings.homepageApiKey);
   if (authResponse) return authResponse;
 
   const [
@@ -109,14 +109,29 @@ export async function GET(request: NextRequest) {
   );
 }
 
-function authorizeHomepageRequest(request: NextRequest, savedToken: string) {
-  const expectedToken = process.env.HOMEPAGE_API_KEY || savedToken;
-  if (!expectedToken) return null;
-
+async function authorizeHomepageRequest(request: NextRequest, savedToken: string) {
   const headerToken = request.headers.get("x-api-key");
   const bearerToken = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   const queryToken = request.nextUrl.searchParams.get("key");
+  const suppliedToken = headerToken || bearerToken || queryToken;
+  const expectedTokens = [process.env.HOMEPAGE_API_KEY, savedToken].filter(Boolean);
 
-  if ([headerToken, bearerToken, queryToken].includes(expectedToken)) return null;
+  if (!suppliedToken) {
+    if (expectedTokens.length > 0) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const apiKeyCount = await prisma.apiKey.count();
+    return apiKeyCount > 0 ? NextResponse.json({ error: "Unauthorized" }, { status: 401 }) : null;
+  }
+
+  if (suppliedToken && expectedTokens.includes(suppliedToken)) return null;
+
+  const apiKey = await prisma.apiKey.findUnique({ where: { token: suppliedToken } });
+  if (apiKey) {
+    await prisma.apiKey.update({
+      data: { lastUsedAt: new Date() },
+      where: { id: apiKey.id }
+    });
+    return null;
+  }
+
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }

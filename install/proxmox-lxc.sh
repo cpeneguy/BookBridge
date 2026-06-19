@@ -16,8 +16,8 @@ LOG_FILE="${LOG_FILE:-/tmp/bookbridge-install.log}"
 # Optional overrides:
 #   CTID=120 STORAGE=local-lvm BRIDGE=vmbr0 PORT=8181 bash install/proxmox-lxc.sh
 #   REPO=https://github.com/you/BookBridge.git BRANCH=main bash install/proxmox-lxc.sh
-#   MEDIA_HOST=/mnt/media MEMORY=2048 CORES=2 DISK_SIZE=12 bash install/proxmox-lxc.sh
-HOSTNAME="${HOSTNAME:-bookbridge}"
+#   BOOKBRIDGE_HOSTNAME=bookbridge MEDIA_HOST=/mnt/media MEMORY=2048 CORES=2 DISK_SIZE=12 bash install/proxmox-lxc.sh
+BOOKBRIDGE_HOSTNAME="${BOOKBRIDGE_HOSTNAME:-bookbridge}"
 PORT="${PORT:-8181}"
 DISK_SIZE="${DISK_SIZE:-8}"
 MEMORY="${MEMORY:-1024}"
@@ -131,7 +131,7 @@ validate_bridge() {
 
 print_config() {
   printf "Container ID : %b%s%b\n" "${YW}" "$CTID" "${CL}"
-  printf "Hostname     : %b%s%b\n" "${YW}" "$HOSTNAME" "${CL}"
+  printf "Hostname     : %b%s%b\n" "${YW}" "$BOOKBRIDGE_HOSTNAME" "${CL}"
   printf "Port         : %b%s%b\n" "${YW}" "$PORT" "${CL}"
   printf "Disk Size    : %b%sGB%b\n" "${YW}" "$DISK_SIZE" "${CL}"
   printf "Memory       : %b%sMB%b\n" "${YW}" "$MEMORY" "${CL}"
@@ -149,6 +149,9 @@ DATABASE_URL=\"file:$DATA_DIR/bookbridge.db\"
 NODE_ENV=production
 NEXT_TELEMETRY_DISABLED=1
 PORT=$PORT
+BOOKBRIDGE_APP_DIR=$APP_DIR
+BOOKBRIDGE_BRANCH=$BRANCH
+BOOKBRIDGE_UPDATE_SCRIPT=/usr/local/bin/bookbridge-update
 EOF"
 }
 
@@ -213,7 +216,7 @@ main() {
 
   run_host_task "Creating BookBridge LXC" "
     pct create '$CTID' '$TEMPLATE' \
-      --hostname '$HOSTNAME' \
+      --hostname '$BOOKBRIDGE_HOSTNAME' \
       --storage '$STORAGE' \
       --rootfs '$STORAGE:$DISK_SIZE' \
       --memory '$MEMORY' \
@@ -226,6 +229,7 @@ main() {
   "
 
   run_host_task "Enabling container startup on boot" "pct set '$CTID' --onboot 1"
+  run_host_task "Labeling container" "pct set '$CTID' --description 'BookBridge ebook and audiobook request automation'"
 
   if [ -d "$MEDIA_HOST" ]; then
     run_host_task "Mounting media path $MEDIA_HOST" "pct set '$CTID' -mp0 '$MEDIA_HOST',mp=/mnt/media,backup=0"
@@ -278,6 +282,10 @@ main() {
     npm run build
   "
 
+  run_ct_direct "Installing BookBridge updater" "
+    install -m 0755 '$APP_DIR/install/update-bookbridge.sh' /usr/local/bin/bookbridge-update
+  "
+
   run_host_task "Creating systemd service" "true"
   create_service
 
@@ -291,7 +299,7 @@ main() {
 
   printf "\n%bINSTALL COMPLETE%b\n\n" "${GN}" "${CL}"
   printf "Container ID : %b%s%b\n" "${YW}" "$CTID" "${CL}"
-  printf "Hostname     : %b%s%b\n" "${YW}" "$HOSTNAME" "${CL}"
+  printf "Hostname     : %b%s%b\n" "${YW}" "$BOOKBRIDGE_HOSTNAME" "${CL}"
   printf "Port         : %b%s%b\n" "${YW}" "$PORT" "${CL}"
   printf "Media Mount  : %b/mnt/media%b\n" "${YW}" "${CL}"
   printf "URL          : %bhttp://%s:%s%b\n" "${GN}" "$IP" "$PORT" "${CL}"

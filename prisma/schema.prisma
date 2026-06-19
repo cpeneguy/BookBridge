@@ -96,6 +96,16 @@ model Setting {
   updatedAt DateTime @updatedAt
 }
 
+model ApiKey {
+  id         String    @id @default(cuid())
+  name       String
+  token      String    @unique
+  scope      String    @default("homepage")
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
 model LibraryItem {
   id        String   @id @default(cuid())
   title     String

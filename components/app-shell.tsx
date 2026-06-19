@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
-  BookOpen,
   Download,
   Library,
   Search,
@@ -25,14 +25,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-surface text-slate-100">
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-line bg-[#131722] lg:block">
-        <div className="flex h-16 items-center gap-3 border-b border-line px-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded bg-[#C89B3C]/15 text-[#F1D48A]">
-            <BookOpen size={21} />
-          </div>
-          <div>
-            <div className="text-base font-semibold tracking-wide">BookBridge</div>
-            <div className="text-xs text-slate-500">Media automation</div>
-          </div>
+        <div className="flex min-h-36 flex-col items-center justify-center gap-2 border-b border-line px-5 py-5 text-center">
+          <Image alt="BookBridge" className="h-auto w-28" height={124} priority src="/images/bookbridge.svg" width={224} />
+          <div className="text-base font-semibold tracking-wide text-slate-100">BookBridge</div>
+          <div className="text-xs text-slate-500">Media automation</div>
         </div>
         <nav className="space-y-1 px-3 py-4">
           {navItems.map((item) => {
@@ -67,8 +63,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-10 border-b border-line bg-surface/85 px-4 py-3 backdrop-blur lg:hidden">
           <div className="flex items-center justify-between">
             <Link href="/browse" className="flex items-center gap-2 font-semibold">
-              <BookOpen className="text-[#F1D48A]" size={20} />
-              BookBridge
+              <Image alt="" className="h-7 w-auto" height={124} priority src="/images/bookbridge.svg" width={224} />
+              <span>BookBridge</span>
             </Link>
             <Link href="/settings" aria-label="Settings">
               <Settings size={20} />
