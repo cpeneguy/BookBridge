@@ -32,6 +32,14 @@ const groups = [
     ]
   },
   {
+    title: "Goodreads",
+    fields: [
+      ["goodreadsEnabled", "Enabled"],
+      ["goodreadsUrl", "URL"],
+      ["goodreadsApiKey", "API key"]
+    ]
+  },
+  {
     title: "SABnzbd",
     fields: [
       ["sabEnabled", "Enabled"],
@@ -78,13 +86,17 @@ const groups = [
 const healthServices = [
   { key: "prowlarr", label: "Prowlarr", description: "Indexer search" },
   { key: "sabnzbd", label: "SABnzbd", description: "Usenet downloads" },
-  { key: "qbittorrent", label: "qBittorrent", description: "Torrent downloads" }
+  { key: "qbittorrent", label: "qBittorrent", description: "Torrent downloads" },
+  { key: "hardcover", label: "Hardcover", description: "Book discovery" },
+  { key: "goodreads", label: "Goodreads", description: "Book metadata" },
+  { key: "audiobookshelf", label: "Audiobookshelf", description: "Library refresh" }
 ] as const;
 
 const booleanFields = new Set([
   "sabEnabled",
   "qbittorrentEnabled",
   "hardcoverEnabled",
+  "goodreadsEnabled",
   "deleteSourceFilesAfterImport",
   "allowOverwrite",
   "ignoreSamples",
@@ -455,7 +467,7 @@ export function SettingsForm({ apiKeys: initialApiKeys, settings }: { apiKeys: A
           <div className="border-b border-line px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-slate-100">{group.title}</h2>
-              {["Prowlarr", "SABnzbd", "qBittorrent"].includes(group.title) ? (
+              {["Prowlarr", "SABnzbd", "qBittorrent", "Hardcover", "Goodreads", "Audiobookshelf"].includes(group.title) ? (
                 <div className="flex items-center gap-2">
                   {testStatus[serviceKey(group.title)] ? <StatusPill>{testStatus[serviceKey(group.title)]}</StatusPill> : null}
                   <Button onClick={() => void testConnection(serviceKey(group.title))} type="button" variant="secondary">
