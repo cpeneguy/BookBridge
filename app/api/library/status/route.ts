@@ -28,8 +28,23 @@ export async function GET() {
     }
   }
 
+  const ebooks = items.filter((item) => item.format === "ebook").length;
+  const audiobooks = items.filter((item) => item.format === "audiobook").length;
+  const sources = items.reduce<Record<string, number>>((counts, item) => {
+    counts[item.source] = (counts[item.source] ?? 0) + 1;
+    return counts;
+  }, {});
+  const lastScannedAt = items[0]?.updatedAt?.toISOString() ?? null;
+
   return NextResponse.json({
     count: items.length,
+    formats: {
+      ebooks,
+      audiobooks
+    },
+    sources,
+    knownTitles: titleKeys.size,
+    lastScannedAt,
     keys: [...keys],
     titleKeys: [...titleKeys],
     scannedItems: items.length

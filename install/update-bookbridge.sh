@@ -57,6 +57,7 @@ main() {
 
   run npx prisma generate
   run npx prisma db push
+  run rm -rf .next
   run npm run build
 
   if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files "$SERVICE_NAME.service" >/dev/null 2>&1; then

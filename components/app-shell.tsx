@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import {
   Download,
   Library,
@@ -21,6 +22,40 @@ const navItems = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+
+  useEffect(() => {
+    function logClientError(message: string, detail?: string) {
+      void fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          level: "error",
+          source: "browser",
+          message,
+          detail,
+          url: window.location.href,
+          userAgent: navigator.userAgent
+        })
+      }).catch(() => undefined);
+    }
+
+    function onError(event: ErrorEvent) {
+      logClientError(event.message || "Browser error", event.error?.stack ?? `${event.filename}:${event.lineno}:${event.colno}`);
+    }
+
+    function onUnhandledRejection(event: PromiseRejectionEvent) {
+      const reason = event.reason;
+      logClientError(reason?.message ?? "Unhandled promise rejection", reason?.stack ?? String(reason ?? ""));
+    }
+
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-surface text-slate-100">

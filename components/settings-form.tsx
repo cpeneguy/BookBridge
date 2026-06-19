@@ -2,6 +2,7 @@
 
 import { CheckCircle2, ChevronLeft, Copy, Download, Folder, KeyRound, Plug, Plus, RefreshCw, Save, Server, Trash2, XCircle } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { Button, Card, inputClass, StatusPill } from "@/components/ui";
 import { defaultSettings } from "@/lib/default-settings";
 
@@ -142,6 +143,18 @@ type ApiKeyRecord = {
   lastUsedAt: string | null;
 };
 
+type LibraryStats = {
+  count: number;
+  scannedItems: number;
+  knownTitles: number;
+  formats: {
+    ebooks: number;
+    audiobooks: number;
+  };
+  sources: Record<string, number>;
+  lastScannedAt: string | null;
+};
+
 export function SettingsForm({ apiKeys: initialApiKeys, settings }: { apiKeys: ApiKeyRecord[]; settings: Record<string, string> }) {
   const [values, setValues] = useState<Record<string, string>>({ ...defaultSettings, ...settings });
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -156,10 +169,12 @@ export function SettingsForm({ apiKeys: initialApiKeys, settings }: { apiKeys: A
   const [newApiKeyName, setNewApiKeyName] = useState("");
   const [newApiKeyScope, setNewApiKeyScope] = useState("homepage");
   const [apiKeyStatus, setApiKeyStatus] = useState<string | null>(null);
+  const [libraryStats, setLibraryStats] = useState<LibraryStats | null>(null);
 
   useEffect(() => {
     void refreshHealth();
     void refreshUpdateStatus();
+    void refreshLibraryStats();
     // Run only once on initial Settings load. Manual refresh handles later edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -214,6 +229,14 @@ export function SettingsForm({ apiKeys: initialApiKeys, settings }: { apiKeys: A
       return;
     }
     setScanStatus(data.errors?.length ? `Scanned ${data.count} items with ${data.errors.length} path errors.` : `Scanned ${data.count} library items.`);
+    void refreshLibraryStats();
+  }
+
+  async function refreshLibraryStats() {
+    const response = await fetch("/api/library/status", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = (await response.json()) as LibraryStats;
+    setLibraryStats(data);
   }
 
   async function refreshUpdateStatus() {
@@ -331,10 +354,6 @@ export function SettingsForm({ apiKeys: initialApiKeys, settings }: { apiKeys: A
             <RefreshCw size={16} />
             Refresh
           </Button>
-          <Button onClick={() => void scanLibrary()} type="button">
-            <RefreshCw size={16} />
-            Scan Library
-          </Button>
         </div>
         <div className="grid gap-3 md:grid-cols-3">
           {healthServices.map((service) => (
@@ -347,7 +366,6 @@ export function SettingsForm({ apiKeys: initialApiKeys, settings }: { apiKeys: A
             />
           ))}
         </div>
-        {scanStatus ? <p className="mt-3 text-xs text-slate-400">{scanStatus}</p> : null}
       </Card>
       <Card className="p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -400,6 +418,20 @@ export function SettingsForm({ apiKeys: initialApiKeys, settings }: { apiKeys: A
               </pre>
             </details>
           ) : null}
+        </div>
+      </Card>
+      <Card className="p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-100">Diagnostics</h2>
+            <p className="mt-1 text-xs text-slate-500">Review captured browser and app errors.</p>
+          </div>
+          <Link
+            className="inline-flex h-9 items-center justify-center gap-2 rounded border border-line bg-white/[0.03] px-3 text-sm font-medium text-slate-200 transition hover:bg-white/[0.06]"
+            href="/logs"
+          >
+            View Logs
+          </Link>
         </div>
       </Card>
       <Card className="p-4">
@@ -476,6 +508,14 @@ export function SettingsForm({ apiKeys: initialApiKeys, settings }: { apiKeys: A
                   </Button>
                 </div>
               ) : null}
+              {group.title === "Media Paths" ? (
+                <div className="flex items-center gap-2">
+                  <Button onClick={() => void scanLibrary()} type="button">
+                    <RefreshCw size={16} />
+                    Scan Library
+                  </Button>
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="grid gap-4 p-4 md:grid-cols-2">
@@ -524,6 +564,8 @@ export function SettingsForm({ apiKeys: initialApiKeys, settings }: { apiKeys: A
               </label>
             ))}
           </div>
+          {group.title === "Media Paths" ? <LibraryStatsPanel stats={libraryStats} /> : null}
+          {group.title === "Media Paths" && scanStatus ? <p className="border-t border-line px-4 py-3 text-xs text-slate-400">{scanStatus}</p> : null}
         </Card>
       ))}
       <div className="flex items-center gap-3">
@@ -658,6 +700,43 @@ function HealthCard({
         <StatusPill tone={tone}>{labelText}</StatusPill>
       </div>
       <p className="mt-3 min-h-5 break-words text-xs leading-5 text-slate-400">{message}</p>
+    </div>
+  );
+}
+
+function LibraryStatsPanel({ stats }: { stats: LibraryStats | null }) {
+  const sourceText = stats ? Object.entries(stats.sources).map(([source, count]) => `${source}: ${count}`).join(" | ") : null;
+
+  return (
+    <div className="border-t border-line px-4 py-4">
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-100">Library File Stats</h3>
+          <p className="text-xs text-slate-500">Counts from the last media path scan.</p>
+        </div>
+        <StatusPill tone={stats?.scannedItems ? "emerald" : "slate"}>{stats ? `${stats.scannedItems} files scanned` : "Not loaded"}</StatusPill>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatBox label="Total files" value={stats?.count ?? 0} />
+        <StatBox label="Ebooks" value={stats?.formats.ebooks ?? 0} />
+        <StatBox label="Audiobooks" value={stats?.formats.audiobooks ?? 0} />
+        <StatBox label="Known titles" value={stats?.knownTitles ?? 0} />
+      </div>
+      <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
+        <div>Last scan: {stats?.lastScannedAt ? formatDate(stats.lastScannedAt) : "Never"}</div>
+        <div className="truncate" title={sourceText ?? undefined}>
+          Sources: {sourceText || "None"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatBox({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded border border-line bg-[#0F1115] p-3">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className="mt-1 text-xl font-semibold text-slate-100">{value.toLocaleString()}</div>
     </div>
   );
 }

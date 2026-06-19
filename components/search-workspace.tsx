@@ -160,7 +160,7 @@ export function SearchWorkspace() {
         </div>
       </div>
 
-      <div className="grid gap-10 pt-4">
+      <div className="grid gap-8 pt-3">
         <BrowseRail
           emptyText={status === "loading" ? "Loading books..." : status === "error" ? "Unable to load books." : "No books found."}
           onRequest={requestBook}
@@ -202,8 +202,8 @@ function BrowseRail({
 }) {
   return (
     <section className="min-w-0 [&>div>span]:hidden">
-      <div className="mb-5 flex items-center justify-between">
-        <h2 className="text-3xl font-bold tracking-tight text-[#F5F7FB]">{title}</h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-2xl font-bold tracking-tight text-[#F5F7FB]">{title}</h2>
         <div className="hidden">
           <span className="text-4xl leading-none">‹</span>
           <span className="text-4xl leading-none text-slate-400">›</span>
@@ -212,7 +212,7 @@ function BrowseRail({
       {results.length === 0 ? (
         <div className="rounded border border-line bg-panel px-4 py-10 text-center text-sm text-slate-500">{emptyText}</div>
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-5">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(145px,1fr))] gap-4">
           {results.map((result, index) => (
             <PosterCard
               inLibrary={isKnownInLibrary(result, libraryStatus)}
@@ -244,9 +244,9 @@ function PosterCard({
   const initials = bookInitials(result.title);
 
   return (
-    <article className="group relative h-[330px] w-full overflow-hidden rounded-lg border border-line bg-panel shadow-lg shadow-black/30">
+    <article className="group relative h-[265px] w-full overflow-hidden rounded-lg border border-line bg-panel shadow-lg shadow-black/30 sm:h-[285px]">
       {result.coverUrl ? (
-        <Image alt="" className="h-full w-full object-cover" height={420} src={result.coverUrl} unoptimized width={280} />
+        <Image alt="" className="h-full w-full object-cover" height={360} src={result.coverUrl} unoptimized width={240} />
       ) : (
         <div className="relative h-full w-full overflow-hidden bg-[radial-gradient(circle_at_32%_22%,rgba(200,155,60,0.34),transparent_31%),radial-gradient(circle_at_78%_10%,rgba(124,58,237,0.28),transparent_25%),linear-gradient(145deg,#222633,#131722_58%,#0F1115)]">
           <div className="absolute inset-x-7 top-20 h-px bg-[#C89B3C]/30" />
@@ -262,17 +262,17 @@ function PosterCard({
           <CheckCircle2 size={17} />
         </div>
       ) : null}
-      <div className="absolute bottom-0 left-0 right-0 p-4">
-        <div className="text-base font-bold leading-tight text-white drop-shadow">{result.title}</div>
-        <div className="mt-1 line-clamp-1 text-sm text-slate-300">{result.author}</div>
-        <div className="mt-3 flex flex-wrap gap-2">
+      <div className="absolute bottom-0 left-0 right-0 p-3">
+        <div className="line-clamp-2 text-sm font-bold leading-tight text-white drop-shadow">{result.title}</div>
+        <div className="mt-1 line-clamp-1 text-xs text-slate-300">{result.author}</div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {result.year ? <StatusPill>{result.year}</StatusPill> : null}
           {result.metadataSource ? <StatusPill tone="cyan">{result.metadataSource}</StatusPill> : null}
         </div>
         {(ebookStatus || audioStatus) && <div className="mt-2 line-clamp-2 text-xs text-[#F1D48A]">{ebookStatus ?? audioStatus}</div>}
-        <div className="mt-3 grid grid-cols-2 gap-2 opacity-0 transition group-hover:opacity-100">
+        <div className="mt-2 grid grid-cols-2 gap-1.5 opacity-0 transition group-hover:opacity-100">
           <button
-            className="rounded bg-[#C89B3C] px-2 py-2 text-xs font-semibold text-[#0F1115] hover:bg-[#D4A64A]"
+            className="rounded bg-[#C89B3C] px-2 py-1.5 text-[11px] font-semibold text-[#0F1115] hover:bg-[#D4A64A]"
             onClick={() => void onRequest(result, "ebook")}
             type="button"
           >
@@ -280,7 +280,7 @@ function PosterCard({
             Ebook
           </button>
           <button
-            className="rounded bg-[#7C3AED] px-2 py-2 text-xs font-semibold text-white hover:bg-[#8B5CF6]"
+            className="rounded bg-[#7C3AED] px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-[#8B5CF6]"
             onClick={() => void onRequest(result, "audiobook")}
             type="button"
           >
@@ -298,8 +298,8 @@ function RequestRail({ books, onOpen, libraryStatus }: { books: RecentBook[]; on
 
   return (
     <section className="min-w-0 [&>div>span]:hidden">
-      <div className="mb-5 flex items-center gap-3">
-        <h2 className="text-3xl font-bold tracking-tight text-[#F5F7FB]">Recent Requests</h2>
+      <div className="mb-4 flex items-center gap-3">
+        <h2 className="text-2xl font-bold tracking-tight text-[#F5F7FB]">Recent Requests</h2>
         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-500 text-xl text-slate-300">›</span>
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-5">
