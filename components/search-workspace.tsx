@@ -136,6 +136,11 @@ export function SearchWorkspace() {
     if (data.book?.id) router.push(`/book?id=${encodeURIComponent(data.book.id)}`);
   }
 
+  function openPreview(result: MetadataResult) {
+    sessionStorage.setItem("bookbridge.previewBook", JSON.stringify(result));
+    router.push("/browse/preview");
+  }
+
   return (
     <div className="-mx-4 -my-6 min-h-screen bg-[#0F1115] px-4 py-5 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
       <div className="sticky top-0 z-10 -mx-4 bg-[#0F1115]/95 px-4 pb-6 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
@@ -173,6 +178,8 @@ export function SearchWorkspace() {
           results={results}
           recentBooks={recentBooks}
           libraryStatus={libraryStatus}
+          hideCompleted={!query.trim()}
+          onPreview={openPreview}
           title={query.trim() ? "Search Results" : "Recently Added"}
         />
 
@@ -185,6 +192,8 @@ export function SearchWorkspace() {
           results={results.slice().reverse()}
           recentBooks={recentBooks}
           libraryStatus={libraryStatus}
+          hideCompleted
+          onPreview={openPreview}
           title="Trending"
         />
       </div>
@@ -198,6 +207,8 @@ function BrowseRail({
   requestStatus,
   recentBooks,
   onRequest,
+  onPreview,
+  hideCompleted,
   emptyText,
   libraryStatus
 }: {
@@ -206,9 +217,13 @@ function BrowseRail({
   requestStatus: Record<string, string>;
   recentBooks: RecentBook[];
   onRequest: (result: MetadataResult, format: "ebook" | "audiobook") => Promise<void>;
+  onPreview: (result: MetadataResult) => void;
+  hideCompleted?: boolean;
   emptyText: string;
   libraryStatus: LibraryStatus;
 }) {
+  const visibleResults = hideCompleted ? results.filter((result) => !isDownloadedOrInLibrary(result, recentBooks, libraryStatus)) : results;
+
   return (
     <section className="min-w-0 [&>div>span]:hidden">
       <div className="mb-4 flex items-center justify-between">
@@ -218,15 +233,16 @@ function BrowseRail({
           <span className="text-4xl leading-none text-slate-400">›</span>
         </div>
       </div>
-      {results.length === 0 ? (
+      {visibleResults.length === 0 ? (
         <div className="rounded border border-line bg-panel px-4 py-10 text-center text-sm text-slate-500">{emptyText}</div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(145px,1fr))] gap-4">
-          {results.map((result, index) => (
+          {visibleResults.map((result, index) => (
             <PosterCard
               inLibrary={isKnownInLibrary(result, libraryStatus)}
               key={result.resultKey ?? `${result.title}-${result.author}-${index}`}
               onRequest={onRequest}
+              onPreview={onPreview}
               requestStatus={requestStatus}
               requestState={requestStateForResult(result, recentBooks, libraryStatus)}
               result={result}
@@ -243,12 +259,14 @@ function PosterCard({
   requestStatus,
   requestState,
   onRequest,
+  onPreview,
   inLibrary
 }: {
   result: MetadataResult;
   requestStatus: Record<string, string>;
   requestState: Record<"ebook" | "audiobook", FormatRequestState | null>;
   onRequest: (result: MetadataResult, format: "ebook" | "audiobook") => Promise<void>;
+  onPreview: (result: MetadataResult) => void;
   inLibrary: boolean;
 }) {
   const ebookStatus = requestStatus[`${result.resultKey}-ebook`];
@@ -258,11 +276,19 @@ function PosterCard({
     requestState.ebook ? { format: "Ebook", state: requestState.ebook } : null,
     requestState.audiobook ? { format: "Audio", state: requestState.audiobook } : null
   ].filter(Boolean) as Array<{ format: string; state: FormatRequestState }>;
-  const ebookLocked = Boolean(requestState.ebook && ["downloading", "completed"].includes(requestState.ebook.kind));
-  const audioLocked = Boolean(requestState.audiobook && ["downloading", "completed"].includes(requestState.audiobook.kind));
+  const ebookLocked = Boolean(requestState.ebook && ["requested", "downloading", "completed"].includes(requestState.ebook.kind));
+  const audioLocked = Boolean(requestState.audiobook && ["requested", "downloading", "completed"].includes(requestState.audiobook.kind));
 
   return (
-    <article className="group relative h-[265px] w-full overflow-hidden rounded-lg border border-line bg-panel shadow-lg shadow-black/30 sm:h-[285px]">
+    <article
+      className="group relative h-[265px] w-full cursor-pointer overflow-hidden rounded-lg border border-line bg-panel shadow-lg shadow-black/30 sm:h-[285px]"
+      onClick={() => onPreview(result)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") onPreview(result);
+      }}
+      role="button"
+      tabIndex={0}
+    >
       {result.coverUrl ? (
         <Image alt="" className="h-full w-full object-cover" height={360} src={result.coverUrl} unoptimized width={240} />
       ) : (
@@ -307,7 +333,10 @@ function PosterCard({
             {!ebookLocked ? (
               <button
                 className="rounded bg-[#C89B3C] px-2 py-1.5 text-[11px] font-semibold text-[#0F1115] hover:bg-[#D4A64A]"
-                onClick={() => void onRequest(result, "ebook")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void onRequest(result, "ebook");
+                }}
                 type="button"
               >
                 <BookOpen className="mr-1 inline" size={13} />
@@ -317,7 +346,10 @@ function PosterCard({
             {!audioLocked ? (
               <button
                 className="rounded bg-[#7C3AED] px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-[#8B5CF6]"
-                onClick={() => void onRequest(result, "audiobook")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void onRequest(result, "audiobook");
+                }}
                 type="button"
               >
                 <Headphones className="mr-1 inline" size={13} />
@@ -430,6 +462,20 @@ function requestStateForResult(result: MetadataResult, books: RecentBook[], libr
   }
 
   return state;
+}
+
+function isDownloadedOrInLibrary(result: MetadataResult, books: RecentBook[], libraryStatus: LibraryStatus) {
+  if (isKnownInLibrary(result, libraryStatus)) return true;
+  const resultFullKey = libraryKey(result.title, result.author);
+  const resultTitleKey = titleKey(result.title);
+
+  return books.some((book) => {
+    const sameBook = libraryKey(book.title, book.author) === resultFullKey || titleKey(book.title) === resultTitleKey;
+    if (!sameBook) return false;
+
+    const latestDownload = book.downloads?.[0];
+    return book.status === "imported" || latestDownload?.status?.toLowerCase() === "completed";
+  });
 }
 
 function requestDisplayStatus(book: RecentBook, inLibrary: boolean): { label: string; tone: "cyan" | "emerald" | "amber" | "rose" | "slate" } {

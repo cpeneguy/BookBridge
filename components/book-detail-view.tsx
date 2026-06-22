@@ -65,16 +65,22 @@ export async function BookDetailView({ id }: { id: string }) {
               score: release.score,
               warnings: release.warnings
             }))}
+            downloads={book.downloads.map((download) => ({
+              releaseId: download.releaseId,
+              category: download.category,
+              status: download.status,
+              client: download.client
+            }))}
           />
-          <Card>
+          <Card className="min-w-0 overflow-hidden">
             <div className="border-b border-line px-4 py-3 text-sm font-semibold">Downloads</div>
             <div className="divide-y divide-line">
               {book.downloads.length === 0 ? (
                 <Empty text="No downloads have been sent for this book." />
               ) : (
                 book.downloads.map((download) => (
-                  <div className="flex justify-between gap-4 px-4 py-3 text-sm" key={download.id}>
-                    <span className="min-w-0">
+                  <div className="flex min-w-0 justify-between gap-4 px-4 py-3 text-sm" key={download.id}>
+                    <span className="min-w-0 flex-1">
                       <span className="block truncate">{download.title || `${download.client} download`}</span>
                       <span className="block text-xs text-slate-500">
                         {download.client} / {download.category} / {download.progress ?? 0}%

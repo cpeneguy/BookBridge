@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
   const settings = await getSettings();
 
   const providers = discover
-    ? [searchHardcoverDiscover(settings), searchGoogleBooks("subject:fiction", { orderBy: "newest", maxResults: 30 })]
+    ? [searchHardcoverDiscover(settings), searchGoogleBooks("subject:fiction", { orderBy: "newest", maxResults: 40 })]
     : [searchHardcoverSearch(settings, searchQuery), searchGoogleBooks(searchQuery), searchOpenLibrary(searchQuery)];
   const settled = await Promise.allSettled(providers);
   const merged = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
 
   const sorted = discover ? rankDiscoverResults(results.length ? results : fallbackDiscoverResults()) : results;
 
-  return NextResponse.json({ results: sorted.slice(0, 18) });
+  return NextResponse.json({ results: sorted.slice(0, discover ? 42 : 18) });
 }
 
 async function searchGoogleBooks(
@@ -181,7 +181,7 @@ async function searchHardcoverDiscover(settings: Record<string, string>): Promis
       `,
       variables: {
         date: `${new Date().getFullYear() - 1}-01-01`,
-        limit: 30
+        limit: 60
       }
     }),
     next: { revalidate: 3600 }
