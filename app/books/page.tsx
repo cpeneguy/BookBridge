@@ -40,7 +40,7 @@ export default async function BooksPage() {
             books.map((book) => (
               <div className="grid grid-cols-[1fr_120px_120px_170px_120px_190px] items-center px-4 py-3 hover:bg-white/[0.03]" key={book.id}>
                 <span>
-                  <Link className="block font-medium text-slate-100 hover:text-[#F1D48A]" href={`/books/${book.id}`}>
+                  <Link className="block font-medium text-slate-100 hover:text-[#F1D48A]" href={`/book?id=${book.id}`}>
                     {book.title}
                   </Link>
                   <span className="block text-sm text-slate-500">

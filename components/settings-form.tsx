@@ -152,6 +152,10 @@ type LibraryStats = {
     audiobooks: number;
   };
   sources: Record<string, number>;
+  scannedPaths?: {
+    books?: string;
+    audiobooks?: string;
+  };
   lastScannedAt: string | null;
 };
 
@@ -727,6 +731,10 @@ function LibraryStatsPanel({ stats }: { stats: LibraryStats | null }) {
         <div className="truncate" title={sourceText ?? undefined}>
           Sources: {sourceText || "None"}
         </div>
+      </div>
+      <div className="mt-3 grid gap-2 text-xs text-slate-500">
+        <div className="break-all">Books scanned from: {stats?.scannedPaths?.books ?? "Not configured"}</div>
+        <div className="break-all">Audiobooks scanned from: {stats?.scannedPaths?.audiobooks ?? "Not configured"}</div>
       </div>
     </div>
   );

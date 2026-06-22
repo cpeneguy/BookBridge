@@ -32,7 +32,7 @@ export function BookActions({
     <div className="flex flex-wrap gap-2">
       <Link
         className="inline-flex h-8 items-center justify-center gap-2 rounded border border-line bg-white/[0.03] px-2 text-xs font-medium text-[#F1D48A] transition hover:bg-white/[0.06]"
-        href={`/books/${bookId}`}
+        href={`/book?id=${encodeURIComponent(bookId)}`}
       >
         <ExternalLink size={14} />
         Releases

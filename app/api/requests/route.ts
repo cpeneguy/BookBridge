@@ -40,10 +40,19 @@ export async function POST(request: NextRequest) {
     const results = await searchProwlarrReleases({ settings, book, format });
     const releases = await replaceReleases(book.id, format, results);
 
-    const threshold = Number(settings.autoRequestThreshold ?? 85);
-    const selected = selectAutoRelease(releases, settings, threshold);
+    const autoThreshold = Number(settings.autoRequestThreshold ?? 85);
+    const reviewThreshold = Number(settings.manualReviewThreshold ?? 70);
+    const selected = selectAutoRelease(releases, settings, autoThreshold, reviewThreshold);
 
     if (!selected) {
+      await logRequestEvent("warn", "No eligible release selected", {
+        bookId: book.id,
+        title: book.title,
+        format,
+        releaseCount: releases.length,
+        autoThreshold,
+        reviewThreshold
+      });
       await prisma.book.update({
         where: { id: book.id },
         data: {
@@ -81,6 +90,13 @@ export async function POST(request: NextRequest) {
     });
 
     if (existingReleaseDownload) {
+      await logRequestEvent("info", "Existing release download reused", {
+        bookId: book.id,
+        releaseId: selected.release.id,
+        client: selected.client,
+        category,
+        format
+      });
       await prisma.book.update({
         where: { id: book.id },
         data: {
@@ -112,6 +128,13 @@ export async function POST(request: NextRequest) {
     });
 
     if (activeDownload) {
+      await logRequestEvent("info", "Existing active download reused", {
+        bookId: book.id,
+        releaseId: selected.release.id,
+        client: selected.client,
+        category,
+        format
+      });
       await prisma.book.update({
         where: { id: book.id },
         data: {
@@ -185,6 +208,17 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    await logRequestEvent("info", "Auto-sent release to downloader", {
+      bookId: book.id,
+      releaseId: selected.release.id,
+      releaseTitle: selected.release.title,
+      protocol: selected.release.protocol,
+      client: selected.client,
+      category,
+      score: selected.release.score,
+      format
+    });
+
     return json({
       action: "downloaded",
       book,
@@ -194,6 +228,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Request failed.";
+    await logRequestEvent("error", message, { bookId: book.id, title: book.title, format });
     await prisma.book.update({
       where: { id: book.id },
       data: {
@@ -205,6 +240,21 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ action: "failed", book, error: message }, { status: 500 });
+  }
+}
+
+async function logRequestEvent(level: "info" | "warn" | "error", message: string, detail: Record<string, unknown>) {
+  try {
+    await prisma.appLog.create({
+      data: {
+        level,
+        source: "request",
+        message,
+        detail: JSON.stringify(detail, null, 2)
+      }
+    });
+  } catch {
+    // Logging should never block request handling.
   }
 }
 
@@ -267,26 +317,30 @@ async function replaceReleases(bookId: string, format: RequestFormat, results: N
 function selectAutoRelease(
   releases: Awaited<ReturnType<typeof replaceReleases>>,
   settings: Record<string, string>,
-  threshold: number
+  autoThreshold: number,
+  reviewThreshold: number
 ) {
   const candidates = releases
-    .filter((release) => (release.score ?? 0) >= threshold)
+    .filter((release) => (release.score ?? 0) >= reviewThreshold)
     .map((release) => {
       const client = preferredClientForRelease(release.protocol, settings);
       return client ? { release, client } : null;
     })
     .filter(Boolean) as Array<{ release: (typeof releases)[number]; client: "sabnzbd" | "qbittorrent" }>;
 
-  return candidates.sort((a, b) => {
+  const sorted = candidates.sort((a, b) => {
     const scoreDelta = (b.release.score ?? 0) - (a.release.score ?? 0);
     if (scoreDelta !== 0) return scoreDelta;
     return protocolRank(b.release.protocol, b.client) - protocolRank(a.release.protocol, a.client);
-  })[0] ?? null;
+  });
+
+  return sorted.find((candidate) => (candidate.release.score ?? 0) >= autoThreshold) ?? sorted[0] ?? null;
 }
 
 function preferredClientForRelease(protocol: string, settings: Record<string, string>) {
-  if (protocol === "usenet" && settings.sabEnabled === "true" && settings.sabUrl && settings.sabApiKey) return "sabnzbd";
-  if (protocol === "torrent" && settings.qbittorrentEnabled === "true" && settings.qbittorrentUrl && settings.qbittorrentUsername) return "qbittorrent";
+  const normalized = protocol.toLowerCase();
+  if (normalized === "usenet" && settings.sabEnabled === "true" && settings.sabUrl && settings.sabApiKey) return "sabnzbd";
+  if (normalized === "torrent" && settings.qbittorrentEnabled === "true" && settings.qbittorrentUrl && settings.qbittorrentUsername) return "qbittorrent";
   return null;
 }
 

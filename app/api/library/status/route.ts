@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { libraryKey, titleKey } from "@/lib/library-match";
+import { getSettings } from "@/lib/settings";
 
 export async function GET() {
-  const [items, books] = await Promise.all([
+  const [items, books, settings] = await Promise.all([
     prisma.libraryItem.findMany({ orderBy: { updatedAt: "desc" } }),
     prisma.book.findMany({
       include: { downloads: { where: { status: "completed" }, take: 1 } },
       where: {
         OR: [{ status: "imported" }, { downloads: { some: { status: "completed" } } }]
       }
-    })
+    }),
+    getSettings()
   ]);
 
   const keys = new Set<string>();
@@ -43,6 +45,10 @@ export async function GET() {
       audiobooks
     },
     sources,
+    scannedPaths: {
+      books: settings.booksPath,
+      audiobooks: settings.audiobooksPath
+    },
     knownTitles: titleKeys.size,
     lastScannedAt,
     keys: [...keys],

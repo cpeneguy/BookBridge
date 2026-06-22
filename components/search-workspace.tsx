@@ -37,6 +37,11 @@ type LibraryStatus = {
   scannedItems: number;
 };
 
+type FormatRequestState = {
+  kind: "requested" | "downloading" | "completed" | "failed";
+  label: string;
+};
+
 export function SearchWorkspace() {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -69,7 +74,7 @@ export function SearchWorkspace() {
     if (!response.ok) return;
     const data = (await response.json()) as { books: RecentBook[] };
     setRecentBooks(
-      data.books.slice(0, 12).map((book) => ({
+      data.books.map((book) => ({
         ...book,
         resultKey: book.resultKey ?? book.id,
         metadataSource: book.metadataSource ?? "BookBridge"
@@ -119,7 +124,7 @@ export function SearchWorkspace() {
 
     if (!response.ok) {
       setRequestStatus((current) => ({ ...current, [key]: data.error ?? "Request failed" }));
-      if (data.book?.id) router.push(`/books/${data.book.id}`);
+      if (data.book?.id) router.push(`/book?id=${encodeURIComponent(data.book.id)}`);
       return;
     }
 
@@ -128,7 +133,7 @@ export function SearchWorkspace() {
       [key]: data.message ?? (data.action === "downloaded" ? "Queued" : "Review needed")
     }));
     void loadRecentRequests();
-    if (data.book?.id) router.push(`/books/${data.book.id}`);
+    if (data.book?.id) router.push(`/book?id=${encodeURIComponent(data.book.id)}`);
   }
 
   return (
@@ -166,17 +171,19 @@ export function SearchWorkspace() {
           onRequest={requestBook}
           requestStatus={requestStatus}
           results={results}
+          recentBooks={recentBooks}
           libraryStatus={libraryStatus}
           title={query.trim() ? "Search Results" : "Recently Added"}
         />
 
-        <RequestRail books={recentBooks} libraryStatus={libraryStatus} onOpen={(id) => router.push(`/books/${id}`)} />
+        <RequestRail books={recentBooks} libraryStatus={libraryStatus} onOpen={(id) => router.push(`/book?id=${encodeURIComponent(id)}`)} />
 
         <BrowseRail
           emptyText="No trending books available."
           onRequest={requestBook}
           requestStatus={requestStatus}
           results={results.slice().reverse()}
+          recentBooks={recentBooks}
           libraryStatus={libraryStatus}
           title="Trending"
         />
@@ -189,6 +196,7 @@ function BrowseRail({
   title,
   results,
   requestStatus,
+  recentBooks,
   onRequest,
   emptyText,
   libraryStatus
@@ -196,6 +204,7 @@ function BrowseRail({
   title: string;
   results: MetadataResult[];
   requestStatus: Record<string, string>;
+  recentBooks: RecentBook[];
   onRequest: (result: MetadataResult, format: "ebook" | "audiobook") => Promise<void>;
   emptyText: string;
   libraryStatus: LibraryStatus;
@@ -219,6 +228,7 @@ function BrowseRail({
               key={result.resultKey ?? `${result.title}-${result.author}-${index}`}
               onRequest={onRequest}
               requestStatus={requestStatus}
+              requestState={requestStateForResult(result, recentBooks, libraryStatus)}
               result={result}
             />
           ))}
@@ -231,17 +241,25 @@ function BrowseRail({
 function PosterCard({
   result,
   requestStatus,
+  requestState,
   onRequest,
   inLibrary
 }: {
   result: MetadataResult;
   requestStatus: Record<string, string>;
+  requestState: Record<"ebook" | "audiobook", FormatRequestState | null>;
   onRequest: (result: MetadataResult, format: "ebook" | "audiobook") => Promise<void>;
   inLibrary: boolean;
 }) {
   const ebookStatus = requestStatus[`${result.resultKey}-ebook`];
   const audioStatus = requestStatus[`${result.resultKey}-audiobook`];
   const initials = bookInitials(result.title);
+  const visibleStates = [
+    requestState.ebook ? { format: "Ebook", state: requestState.ebook } : null,
+    requestState.audiobook ? { format: "Audio", state: requestState.audiobook } : null
+  ].filter(Boolean) as Array<{ format: string; state: FormatRequestState }>;
+  const ebookLocked = Boolean(requestState.ebook && ["downloading", "completed"].includes(requestState.ebook.kind));
+  const audioLocked = Boolean(requestState.audiobook && ["downloading", "completed"].includes(requestState.audiobook.kind));
 
   return (
     <article className="group relative h-[265px] w-full overflow-hidden rounded-lg border border-line bg-panel shadow-lg shadow-black/30 sm:h-[285px]">
@@ -257,6 +275,20 @@ function PosterCard({
         </div>
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/15 to-black/15" />
+      {visibleStates.length ? (
+        <div className="absolute left-0 top-3 flex flex-col gap-1">
+          {visibleStates.map(({ format, state }) => (
+            <span
+              className={`rounded-r px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow ${
+                state.kind === "completed" ? "bg-[#22C55E]" : state.kind === "failed" ? "bg-[#DC2626]" : "bg-[#0EA5E9]"
+              }`}
+              key={`${format}-${state.kind}`}
+            >
+              {format} {state.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {inLibrary ? (
         <div className="absolute right-3 top-3 rounded-full bg-[#22C55E] p-1 text-[#0F1115]" title="In library or previously downloaded">
           <CheckCircle2 size={17} />
@@ -270,24 +302,30 @@ function PosterCard({
           {result.metadataSource ? <StatusPill tone="cyan">{result.metadataSource}</StatusPill> : null}
         </div>
         {(ebookStatus || audioStatus) && <div className="mt-2 line-clamp-2 text-xs text-[#F1D48A]">{ebookStatus ?? audioStatus}</div>}
-        <div className="mt-2 grid grid-cols-2 gap-1.5 opacity-0 transition group-hover:opacity-100">
-          <button
-            className="rounded bg-[#C89B3C] px-2 py-1.5 text-[11px] font-semibold text-[#0F1115] hover:bg-[#D4A64A]"
-            onClick={() => void onRequest(result, "ebook")}
-            type="button"
-          >
-            <BookOpen className="mr-1 inline" size={13} />
-            Ebook
-          </button>
-          <button
-            className="rounded bg-[#7C3AED] px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-[#8B5CF6]"
-            onClick={() => void onRequest(result, "audiobook")}
-            type="button"
-          >
-            <Headphones className="mr-1 inline" size={13} />
-            Audio
-          </button>
-        </div>
+        {!ebookLocked || !audioLocked ? (
+          <div className={`mt-2 grid gap-1.5 opacity-0 transition group-hover:opacity-100 ${!ebookLocked && !audioLocked ? "grid-cols-2" : "grid-cols-1"}`}>
+            {!ebookLocked ? (
+              <button
+                className="rounded bg-[#C89B3C] px-2 py-1.5 text-[11px] font-semibold text-[#0F1115] hover:bg-[#D4A64A]"
+                onClick={() => void onRequest(result, "ebook")}
+                type="button"
+              >
+                <BookOpen className="mr-1 inline" size={13} />
+                Ebook
+              </button>
+            ) : null}
+            {!audioLocked ? (
+              <button
+                className="rounded bg-[#7C3AED] px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-[#8B5CF6]"
+                onClick={() => void onRequest(result, "audiobook")}
+                type="button"
+              >
+                <Headphones className="mr-1 inline" size={13} />
+                Audio
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </article>
   );
@@ -303,7 +341,7 @@ function RequestRail({ books, onOpen, libraryStatus }: { books: RecentBook[]; on
         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-500 text-xl text-slate-300">›</span>
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-5">
-        {books.map((book) => (
+        {books.slice(0, 12).map((book) => (
           <RequestCard book={book} inLibrary={isKnownInLibrary(book, libraryStatus)} key={book.id} onOpen={onOpen} />
         ))}
       </div>
@@ -353,6 +391,45 @@ function isKnownInLibrary(result: MetadataResult, libraryStatus: LibraryStatus) 
   const fullKey = libraryKey(result.title, result.author);
   const shortKey = titleKey(result.title);
   return libraryStatus.keys.includes(fullKey) || libraryStatus.titleKeys.includes(shortKey);
+}
+
+function requestStateForResult(result: MetadataResult, books: RecentBook[], libraryStatus: LibraryStatus): Record<"ebook" | "audiobook", FormatRequestState | null> {
+  const resultFullKey = libraryKey(result.title, result.author);
+  const resultTitleKey = titleKey(result.title);
+  const state: Record<"ebook" | "audiobook", FormatRequestState | null> = {
+    ebook: null,
+    audiobook: null
+  };
+
+  for (const book of books) {
+    const format = book.formatWanted === "ebook" ? "ebook" : book.formatWanted === "audiobook" ? "audiobook" : null;
+    if (!format) continue;
+
+    const sameBook = libraryKey(book.title, book.author) === resultFullKey || titleKey(book.title) === resultTitleKey;
+    if (!sameBook) continue;
+
+    const latestDownload = book.downloads?.[0];
+    const downloadStatus = latestDownload?.status?.toLowerCase();
+
+    if (downloadStatus === "failed") {
+      state[format] = { kind: "failed", label: "failed" };
+      continue;
+    }
+
+    if (downloadStatus === "completed" || book.status === "imported" || isKnownInLibrary(book, libraryStatus)) {
+      state[format] = { kind: "completed", label: "done" };
+      continue;
+    }
+
+    if (latestDownload || book.status === "downloading") {
+      state[format] = { kind: "downloading", label: "sent" };
+      continue;
+    }
+
+    state[format] = { kind: "requested", label: "wanted" };
+  }
+
+  return state;
 }
 
 function requestDisplayStatus(book: RecentBook, inLibrary: boolean): { label: string; tone: "cyan" | "emerald" | "amber" | "rose" | "slate" } {
